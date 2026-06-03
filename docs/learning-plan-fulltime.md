@@ -265,8 +265,35 @@ CrossAgent CLI - 多端小程序 Agent 研发工具
 
 ---
 
+## Agent 架构分层 · 外部阅读顺序
+
+建立 **Skill / Tool / Memory / Checkpoint** 分层时，**严格按下面顺序读**（先全局概念 → 完整实现 → 规范 → 模式细节）。每读完一项，对照本仓库 `services/` 与 `skills/` 记一笔「CrossAgent 对应什么」。
+
+| 顺序 | 资源 | 链接 | 读什么 | CrossAgent 对应 |
+|------|------|------|--------|-----------------|
+| **①** | AI Agent Handbook | [vasilyevdm/ai-agent-handbook](https://github.com/vasilyevdm/ai-agent-handbook) | 30+ 框架对比：Agent Loop、Memory 五层、Tools/MCP、Checkpoint、Skill 渐进式加载 | 总览与面试话术；避免把 Skill/MCP/OpenSpec 混为一谈 |
+| **②** | Deep Agents | [langchain-ai/deepagents](https://github.com/langchain-ai/deepagents) | Middleware 注入 Tool、`SkillsMiddleware`、`MemoryMiddleware`、LangGraph `checkpointer` | ToolRegistry / Provider 设计；见 `.cursor/skills/deepagents-tool-layer/` |
+| **③** | Agent Skills 规范 | [agentskills/agentskills](https://github.com/agentskills/agentskills) · [规范](https://agentskills.io/specification) | `SKILL.md` 格式、metadata → 全文 → scripts 渐进披露 | 运行时 `skills/crossagent-core/` 与用户 `.crossagent/skills/` |
+| **④** | Agentic Harness Patterns | [keli-wen/agentic-harness-patterns-skill](https://github.com/keli-wen/agentic-harness-patterns-skill) | Memory 分层、Tool Registry（fail-closed）、Skill Runtime 预算 | 补 Tool 权限、Memory 与 Checkpoint 边界 |
+
+**本仓库对照**
+
+| 层 | 职责 | 当前状态 |
+|----|------|----------|
+| Skill | 规范与领域知识 → system prompt | `skills/crossagent-core/`（待 loader） |
+| Tool | 可执行动作 | `services/tools/registry.py`（进行中） |
+| Memory | 跨会话偏好与事实 | 未做 |
+| Checkpoint | 本次任务状态、断点恢复 | 会话在 `session.py`；LangGraph checkpoint 待第 1 周编排 |
+
+**建议插入时间**：第 1 周做 ToolRegistry / Context 时读 ①②；接 Skill loader 前读 ③；做权限与 Memory 前读 ④。
+
+**可选延伸**（不阻塞主线）：[willhaosky/AgentX](https://github.com/willhaosky/AgentX)（显式 memory/skill 目录）、[langchain-ai/langgraph](https://github.com/langchain-ai/langgraph)（Checkpoint API）。
+
+---
+
 ## 相关文档
 
 - [learning-plan.md](./learning-plan.md) — 知识点清单  
 - [architecture.md](./architecture.md) — 架构分层  
 - [qwen-setup.md](./qwen-setup.md) — 千问接入  
+- `.cursor/skills/deepagents-tool-layer/SKILL.md` — Deep Agents 工具层对照（开发用）  

@@ -35,3 +35,11 @@ htmlcov/
 # Local data
 data/*.db
 data/sessions/*.json
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+apps/web/.env.local

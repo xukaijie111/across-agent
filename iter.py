@@ -1,7 +1,7 @@
 
 
 
-gen = (x for x in range(10))
+gen = (x for x in range(3))
 
 print(gen)
 print(gen.__iter__)

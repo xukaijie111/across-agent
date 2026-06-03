@@ -55,6 +55,15 @@ class Config:
         p = Path(raw)
         return p if p.is_absolute() else PROJECT_ROOT / p
 
+    @property
+    def workspace_root(self) -> Path:
+        """Agent 文件/git 工具允许访问的根目录，默认当前工作目录。"""
+        raw = self.get("CROSSAGENT_WORKSPACE")
+        if raw and str(raw).strip():
+            p = Path(raw.strip())
+            return p.resolve() if p.is_absolute() else (PROJECT_ROOT / p).resolve()
+        return Path.cwd().resolve()
+
 
 config = Config()
 settings = config  # 别名，factory / 旧代码可用 settings.xxx

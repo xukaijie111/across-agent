@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "calc": {
+      "command": "python",
+      "args": ["servers/calc_server.py"],
+      "cwd": "."
+    },
+    "shop": {
+      "command": "python",
+      "args": ["servers/shop_server.py"],
+      "cwd": "."
+    }
+  }
+}

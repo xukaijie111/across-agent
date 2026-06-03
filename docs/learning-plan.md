@@ -274,8 +274,25 @@ python-less/
 
 ---
 
-## 十一、相关文档
+## 十一、Agent 架构分层 · 外部阅读顺序
 
+建立 **Skill / Tool / Memory / Checkpoint** 分层时，**严格按序**（详见 [learning-plan-fulltime.md](./learning-plan-fulltime.md) 同名章节）：
+
+| 顺序 | 资源 | 重点 |
+|------|------|------|
+| **①** | [ai-agent-handbook](https://github.com/vasilyevdm/ai-agent-handbook) | 全局概念：Loop、Memory、Tools、Checkpoint |
+| **②** | [deepagents](https://github.com/langchain-ai/deepagents) | 完整分层实现；对照 `.cursor/skills/deepagents-tool-layer/` |
+| **③** | [agentskills 规范](https://github.com/agentskills/agentskills) | `SKILL.md` 格式与渐进披露 |
+| **④** | [agentic-harness-patterns-skill](https://github.com/keli-wen/agentic-harness-patterns-skill) | Memory / Tool Registry / Skill Runtime 模式 |
+
+**插入时机**：Tool Calling 跑通后、上 LangGraph checkpoint 前读完 ①②；Skill loader 前读 ③；权限与 Memory 前读 ④。
+
+---
+
+## 十二、相关文档
+
+- [learning-plan-fulltime.md](./learning-plan-fulltime.md) — 全职 CLI 排期（含阅读顺序详情）  
 - [architecture.md](./architecture.md) — 编排层 / Service / 工作流关系  
 - [qwen-setup.md](./qwen-setup.md) — 千问 API 与 Tool Calling 配置  
-- `demo/orchestration_demo/` — LangGraph 编排 Demo（可运行）
+- `demo/orchestration_demo/` — LangGraph 编排 Demo（可运行）  
+- `.cursor/skills/deepagents-tool-layer/SKILL.md` — Deep Agents 工具层对照（开发用）
