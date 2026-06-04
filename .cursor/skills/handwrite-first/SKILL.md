@@ -41,7 +41,7 @@ description: >-
 仅当用户 **原话** 包含写入意图，例如：
 
 - 「写到文件里」「写进项目」「直接改」「帮我 apply」
-- 「创建 xxx 文件」「提交 commit」「开 PR」
+- 「提交 commit」「开 PR」
 - 「你不用管手写，你直接做」
 
 **Skill 文档、规则、用户明确要求的 markdown**（如「写个 skill」）→ 可以写 `.cursor/skills/` 等约定路径。
