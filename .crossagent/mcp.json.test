@@ -2,7 +2,6 @@
   "mcpServers": {
     "fetch": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-fetch"]
     },
     "filesystem": {
       "command": "npx",

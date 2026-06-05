@@ -29,7 +29,7 @@ async function streamText(
   delayMs = 30,
 ) {
   for (const char of text) {
-    controller.enqueue(encodeSseFrame({ type: "text", delta: char }));
+    controller.enqueue(encodeSseFrame({ type: "text", delta: char, format: "markdown" }));
     await sleep(delayMs);
   }
 }
@@ -95,12 +95,8 @@ async function runMockReply(
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as {
-    messages?: Array<{ role: string; content: string }>;
-  };
-  const messages = body.messages ?? [];
-  const lastUser = [...messages].reverse().find((item) => item.role === "user");
-  const userMessage = lastUser?.content?.trim() ?? "你好";
+  const body = (await request.json()) as { message?: string };
+  const userMessage = body.message?.trim() ?? "你好";
 
   eventSeq = 0;
 

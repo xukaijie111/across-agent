@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from typing import Literal, Any, TypedDict, TypeAlias
 
+ContentFormat = Literal["markdown", "plain"]
+
 
 class TextEvent(TypedDict):
     type: Literal["text"]
     delta: str
+    format: ContentFormat
 
 
 class ToolStartEvent(TypedDict):
@@ -49,8 +52,8 @@ class ChatStreamReuqestBody(TypedDict):
     messages: list[ClientChatMessage]
 
 
-def text_event(delta: str) -> TextEvent:
-    return {"type": "text", "delta": delta}
+def text_event(delta: str, *, format: ContentFormat = "markdown") -> TextEvent:
+    return {"type": "text", "delta": delta, "format": format}
 
 
 def tool_start_event(id: str, name: str, args: dict[str, Any]) -> ToolStartEvent:

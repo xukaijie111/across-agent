@@ -4,7 +4,7 @@ import {
 } from "@microsoft/fetch-event-source";
 
 import { API_BASE } from "@/lib/api";
-import type { ChatEvent, ChatMessage } from "@/types/chat";
+import { parseChatEvent, type ChatEvent } from "@/lib/chat-protocol";
 import type { SseStreamMeta } from "@/types/sse";
 
 export interface StreamChatHandlers {
@@ -32,17 +32,17 @@ function handleSseMessage(
 
   if (!message.data) return;
 
-  // event 字段：默认 chat；ping 等控制类事件跳过业务 parse
   if (message.event && message.event !== "chat") {
     return;
   }
 
-  const event = JSON.parse(message.data) as ChatEvent;
+  const event = parseChatEvent(JSON.parse(message.data));
   handlers.onEvent(event);
 }
 
 export async function streamChat(
-  messages: ChatMessage[],
+  sessionId: string,
+  message: string,
   handlers: StreamChatHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -50,12 +50,12 @@ export async function streamChat(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      messages: messages.map(({ role, content }) => ({ role, content })),
+      session_id: sessionId,
+      message,
     }),
     signal,
     openWhenHidden: true,
     onmessage(message) {
-      console.error(`message is`,message,typeof message);
       try {
         handleSseMessage(message, handlers);
       } catch (err) {
@@ -68,7 +68,6 @@ export async function streamChat(
       // 流正常结束
     },
     onerror(err) {
-      // 聊天场景不自动重连；抛出让 Promise reject
       throw err;
     },
   });

@@ -8,8 +8,11 @@ from langgraph.graph import StateGraph, START, END
 from services.graph.nodes import AgentNodeRunner
 from services.graph.state import AgentState
 
+from services.checkpoint import get_checkpointer
+
 
 Route = Literal["tools", "__end__"]
+_USE_DEFAULT = object()
 
 
 @dataclass
@@ -22,8 +25,7 @@ class AgentGraphFactory:
             return "tools"
         return "__end__"
 
-    def build(self):
-
+    def build(self, checkpointer=_USE_DEFAULT):
         builder = StateGraph(AgentState)
         builder.add_node("agent", self.nodes.call_model)
         builder.add_node("tools", self.nodes.execute_tools)
@@ -37,4 +39,5 @@ class AgentGraphFactory:
             },
         )
         builder.add_edge("tools", "agent")
-        return builder.compile()
+        cp = get_checkpointer() if checkpointer is _USE_DEFAULT else checkpointer
+        return builder.compile(checkpointer=cp)
