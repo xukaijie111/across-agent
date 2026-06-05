@@ -53,6 +53,7 @@ async function walkFiles(base: string, pattern: string): Promise<string[]> {
 
 registerTool({
   name: "read_file",
+  risk: "read",
   description: "读取工作区内的文本文件。path 为相对工作区的路径。",
   parameters: {
     type: "object",
@@ -74,6 +75,7 @@ registerTool({
 
 registerTool({
   name: "list_dir",
+  risk: "read",
   description: "列出工作区目录下的文件和子目录。path 默认为工作区根目录。",
   parameters: {
     type: "object",
@@ -112,6 +114,7 @@ registerTool({
 
 registerTool({
   name: "search_files",
+  risk: "read",
   description: "按 glob 模式搜索文件，例如 **/*.json 或 src/**/*.tsx。",
   parameters: {
     type: "object",
@@ -145,6 +148,7 @@ registerTool({
 
 registerTool({
   name: "grep_files",
+  risk: "read",
   description: "在文件内容中搜索正则 pattern，返回匹配行。glob 限定文件范围，默认 **/*。",
   parameters: {
     type: "object",
@@ -194,6 +198,7 @@ registerTool({
 
 registerTool({
   name: "write_file",
+  risk: "mutate",
   description: "写入工作区内的文本文件。仅在用户明确要求修改时使用。",
   parameters: {
     type: "object",

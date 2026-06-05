@@ -48,12 +48,12 @@ export function useAgentChat() {
           return;
         }
 
-        const id = await createSession();
+        const created = await createSession();
         if (cancelled) return;
-        setSessionId(id);
+        setSessionId(created.sessionId);
         setCompletedTurns([]);
         setStreamingTurn(null);
-        setSessionIdInUrl(id);
+        setSessionIdInUrl(created.sessionId);
         setSessionReady(true);
       } catch (err) {
         if (!cancelled) {
@@ -79,11 +79,11 @@ export function useAgentChat() {
   const startNewSession = useCallback(async () => {
     stop();
     setError(null);
-    const id = await createSession();
-    setSessionId(id);
+    const created = await createSession();
+    setSessionId(created.sessionId);
     setCompletedTurns([]);
     setStreamingTurn(null);
-    setSessionIdInUrl(id);
+    setSessionIdInUrl(created.sessionId);
   }, [stop]);
 
   const sendMessage = useCallback(

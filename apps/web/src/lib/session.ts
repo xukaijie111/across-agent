@@ -1,3 +1,4 @@
+import { authHeaders } from "@/lib/auth";
 import { API_BASE } from "@/lib/api";
 import type { ChatTurn, HistoryMessage } from "@/lib/chat-protocol";
 import { historyToTurns } from "@/lib/chat-protocol";
@@ -15,13 +16,30 @@ export function setSessionIdInUrl(sessionId: string) {
   window.history.replaceState(null, "", url.toString());
 }
 
-export async function createSession(): Promise<string> {
-  const res = await fetch(`${API_BASE}/session/create`, { method: "POST" });
+export type CreateSessionResult = {
+  sessionId: string;
+  policy: "readonly" | "standard" | "full";
+  authenticated: boolean;
+};
+
+export async function createSession(): Promise<CreateSessionResult> {
+  const res = await fetch(`${API_BASE}/session/create`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
   if (!res.ok) {
     throw new Error("create session failed");
   }
-  const data = (await res.json()) as { session_id: string };
-  return data.session_id;
+  const data = (await res.json()) as {
+    session_id: string;
+    policy: CreateSessionResult["policy"];
+    authenticated: boolean;
+  };
+  return {
+    sessionId: data.session_id,
+    policy: data.policy,
+    authenticated: data.authenticated,
+  };
 }
 
 /** 与后端 POST /session/histroy 对齐（后端路径拼写暂保留） */

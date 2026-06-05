@@ -11,6 +11,11 @@ export const AgentStateAnnotation = Annotation.Root({
     reducer: (_left, right) => right,
     default: () => false,
   }),
+  /** approve 节点写入；tools 节点只执行列表内的 tool_call_id */
+  approvedToolCallIds: Annotation<string[]>({
+    reducer: (_left, right) => right,
+    default: () => [],
+  }),
 });
 
 export type AgentState = typeof AgentStateAnnotation.State;

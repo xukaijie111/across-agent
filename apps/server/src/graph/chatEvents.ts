@@ -20,6 +20,17 @@ export type ToolEndEvent = {
   error?: string | null;
 };
 
+export type ToolConfirmEvent = {
+  type: "tool_confirm";
+  interruptId: string;
+  actionRequests: Array<{
+    name: string;
+    args: Record<string, unknown>;
+  }>;
+};
+
+export type ApprovalPendingEvent = { type: "approval_pending" };
+
 export type DoneEvent = { type: "done" };
 export type ErrorEvent = { type: "error"; message: string };
 
@@ -27,6 +38,8 @@ export type ChatEvent =
   | TextEvent
   | ToolStartEvent
   | ToolEndEvent
+  | ToolConfirmEvent
+  | ApprovalPendingEvent
   | DoneEvent
   | ErrorEvent;
 
@@ -48,6 +61,17 @@ export function toolEndEvent(
   error: string | null,
 ): ToolEndEvent {
   return { type: "tool_end", id, result, error };
+}
+
+export function toolConfirmEvent(
+  interruptId: string,
+  actionRequests: ToolConfirmEvent["actionRequests"],
+): ToolConfirmEvent {
+  return { type: "tool_confirm", interruptId, actionRequests };
+}
+
+export function approvalPendingEvent(): ApprovalPendingEvent {
+  return { type: "approval_pending" };
 }
 
 export function doneEvent(): DoneEvent {

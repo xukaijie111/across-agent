@@ -1,13 +1,14 @@
 "use client";
 
+import { useCallback } from "react";
 import { Plus, Sparkles } from "lucide-react";
 
+import { AuthPanel } from "@/components/chat/AuthPanel";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageList } from "@/components/chat/MessageList";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { useAgentChat } from "@/hooks/useAgentChat";
-
 export function ChatPage() {
   const {
     sessionReady,
@@ -18,7 +19,13 @@ export function ChatPage() {
     sendMessage,
     stop,
     clearMessages,
+    startNewSession,
   } = useAgentChat();
+
+  const handleAuthChange = useCallback(() => {
+    // 登录/退出后重建 session，使 policy 与身份一致
+    void startNewSession();
+  }, [startNewSession]);
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-background">
@@ -42,6 +49,7 @@ export function ChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <AuthPanel onAuthChange={handleAuthChange} />
             <ThemeToggle />
             <Button
               variant="outline"

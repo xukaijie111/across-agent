@@ -89,6 +89,7 @@ async function runScript(root: string, scriptName: string) {
 
 registerTool({
   name: "detect_framework",
+  risk: "read",
   description: "检测工作区项目使用的多端框架（uni-app/Taro/Morjs 等）及可用构建脚本。",
   parameters: { type: "object", properties: {} },
   handler: async () => {
@@ -118,6 +119,7 @@ registerTool({
 
 registerTool({
   name: "run_build",
+  risk: "exec",
   description: "执行项目构建。target 可选 weixin、alipay、h5、tt、baidu。",
   parameters: {
     type: "object",

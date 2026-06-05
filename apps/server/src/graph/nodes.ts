@@ -1,4 +1,5 @@
 import type { RunnableConfig } from "@langchain/core/runnables";
+import { interrupt } from "@langchain/langgraph";
 import type OpenAI from "openai";
 
 import {
@@ -8,15 +9,19 @@ import {
   type ChatMessage,
 } from "../context.js";
 import { client, MODEL } from "../llm.js";
-import { executeTool, getTools } from "../tools/index.js";
+import { executeTool, getToolRisk, getTools } from "../tools/index.js";
+import { isToolAllowed, requiresHitlApproval } from "../tools/policy.js";
+import { parseHitlResume, type HitlRequest } from "./hitl.js";
 import type { AgentState } from "./state.js";
-import { getStreamCallbacks } from "./streamCallbacks.js";
+import { getStreamCallbacks, getToolPolicy } from "./streamCallbacks.js";
 
-type ToolCallAccum = {
+type ToolCall = {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
 };
+
+type ToolCallAccum = ToolCall;
 
 function toAssistantMessage(msg: OpenAI.Chat.Completions.ChatCompletionMessage): ChatMessage {
   const data: ChatMessage = {
@@ -57,6 +62,22 @@ function mergeToolCallDelta(
   }
 }
 
+function parseToolArgs(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw || "{}") as unknown;
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function lastAssistantToolCalls(state: AgentState): ToolCall[] {
+  const last = state.messages[state.messages.length - 1];
+  return (last?.tool_calls as ToolCall[] | undefined) ?? [];
+}
+
 export async function callModel(
   state: AgentState,
   config?: RunnableConfig,
@@ -67,14 +88,14 @@ export async function callModel(
     console.log("[context]\n" + formatAnalysis(analyzeMessages(state.messages)));
   }
 
-  const { onTextDelta } = getStreamCallbacks(
-    config?.configurable as Record<string, unknown> | undefined,
-  );
+  const configurable = config?.configurable as Record<string, unknown> | undefined;
+  const { onTextDelta } = getStreamCallbacks(configurable);
+  const toolPolicy = getToolPolicy(configurable);
 
   const stream = await client.chat.completions.create({
     model: MODEL,
     messages,
-    tools: getTools() as unknown as OpenAI.Chat.Completions.ChatCompletionTool[],
+    tools: getTools(toolPolicy) as unknown as OpenAI.Chat.Completions.ChatCompletionTool[],
     tool_choice: "auto",
     stream: true,
   });
@@ -116,25 +137,98 @@ export async function callModel(
       : {}),
   };
 
-  return { messages: [toAssistantMessage(assistantMsg)] };
+  return {
+    messages: [toAssistantMessage(assistantMsg)],
+    approvedToolCallIds: [],
+  };
 }
 
-export async function executeTools(state: AgentState): Promise<Partial<AgentState>> {
-  const last = state.messages[state.messages.length - 1];
-  const toolCalls = (last?.tool_calls as Array<{
-    id: string;
-    function: { name: string; arguments: string };
-  }>) ?? [];
+export async function approveTools(
+  state: AgentState,
+  config?: RunnableConfig,
+): Promise<Partial<AgentState>> {
+  const toolPolicy = getToolPolicy(config?.configurable as Record<string, unknown> | undefined);
+  const toolCalls = lastAssistantToolCalls(state);
+
+  const autoApproved: string[] = [];
+  const needsHitl: ToolCall[] = [];
+
+  for (const tc of toolCalls) {
+    const risk = getToolRisk(tc.function.name);
+    if (risk && requiresHitlApproval(risk) && isToolAllowed(risk, toolPolicy)) {
+      needsHitl.push(tc);
+    } else {
+      autoApproved.push(tc.id);
+    }
+  }
+
+  const approvedIds = [...autoApproved];
+  const rejectMessages: ChatMessage[] = [];
+
+  if (needsHitl.length > 0) {
+    const hitlRequest: HitlRequest = {
+      action_requests: needsHitl.map((tc) => ({
+        name: tc.function.name,
+        args: parseToolArgs(tc.function.arguments),
+      })),
+    };
+
+    const resumeValue = interrupt(hitlRequest);
+    const decisions = parseHitlResume(resumeValue);
+
+    for (let i = 0; i < needsHitl.length; i++) {
+      const tc = needsHitl[i];
+      const decision = decisions[i];
+      if (decision?.type === "approve") {
+        approvedIds.push(tc.id);
+        continue;
+      }
+      const message =
+        decision?.type === "reject" && decision.message
+          ? decision.message
+          : "User rejected tool execution";
+      rejectMessages.push({
+        role: "tool",
+        tool_call_id: tc.id,
+        content: JSON.stringify({ ok: false, error: message }),
+      });
+    }
+  }
+
+  const patch: Partial<AgentState> = {
+    approvedToolCallIds: approvedIds,
+  };
+  if (rejectMessages.length > 0) {
+    patch.messages = rejectMessages;
+  }
+  return patch;
+}
+
+export async function executeTools(
+  state: AgentState,
+  config?: RunnableConfig,
+): Promise<Partial<AgentState>> {
+  const configurable = config?.configurable as Record<string, unknown> | undefined;
+  const { onToolStart } = getStreamCallbacks(configurable);
+  const toolPolicy = getToolPolicy(configurable);
+  const toolCalls = lastAssistantToolCalls(state);
+  const approved = new Set(state.approvedToolCallIds ?? []);
 
   const toolMessages: ChatMessage[] = [];
   for (const toolCall of toolCalls) {
-    let args: Record<string, unknown> = {};
-    try {
-      args = JSON.parse(toolCall.function.arguments || "{}") as Record<string, unknown>;
-    } catch {
-      args = {};
+    if (!approved.has(toolCall.id)) {
+      continue;
     }
-    const result = await executeTool(toolCall.function.name, args);
+    const args = parseToolArgs(toolCall.function.arguments);
+    const result = await executeTool(
+      toolCall.function.name,
+      args,
+      toolPolicy,
+      {
+        toolCallId: toolCall.id,
+        onStart: onToolStart,
+      },
+    );
     toolMessages.push({
       role: "tool",
       tool_call_id: toolCall.id,
@@ -142,12 +236,19 @@ export async function executeTools(state: AgentState): Promise<Partial<AgentStat
     });
   }
 
-  return { messages: toolMessages };
+  return {
+    messages: toolMessages,
+    approvedToolCallIds: [],
+  };
 }
 
-export function routeAfterAgent(state: AgentState): "tools" | "__end__" {
-  const last = state.messages[state.messages.length - 1];
-  const toolCalls = last?.tool_calls as unknown[] | undefined;
-  if (toolCalls?.length) return "tools";
+export function routeAfterAgent(state: AgentState): "approve" | "__end__" {
+  const toolCalls = lastAssistantToolCalls(state);
+  if (toolCalls.length > 0) return "approve";
   return "__end__";
+}
+
+export function routeAfterApprove(state: AgentState): "tools" | "agent" {
+  const approved = state.approvedToolCallIds ?? [];
+  return approved.length > 0 ? "tools" : "agent";
 }

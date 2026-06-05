@@ -30,6 +30,7 @@ async function runGit(args: string[], timeoutMs = 30_000): Promise<string> {
 
 registerTool({
   name: "git_status",
+  risk: "read",
   description: "查看工作区 git 状态（分支与变更摘要）。",
   parameters: { type: "object", properties: {} },
   handler: async () => runGit(["status", "--short", "--branch"]),
@@ -37,6 +38,7 @@ registerTool({
 
 registerTool({
   name: "git_diff",
+  risk: "read",
   description: "查看 git diff；path 可选，为相对工作区的文件或目录。",
   parameters: {
     type: "object",
@@ -55,6 +57,7 @@ registerTool({
 
 registerTool({
   name: "git_log",
+  risk: "read",
   description: "查看最近 git 提交记录。",
   parameters: {
     type: "object",
