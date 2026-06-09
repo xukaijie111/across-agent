@@ -35,8 +35,8 @@ class SessionStore:
     def create(self, agent_id: str, initial_state: dict[str, Any], *, title: str = "") -> Session:
         session_id = uuid.uuid4().hex
         state = self._bind_thread_id(session_id, initial_state)
-        record = mysql_store.create_session(agent_id, state, title=title)
-        mysql_store.delete_empty_sessions(agent_id, keep_session_id=session_id)
+        record = mysql_store.create_session(agent_id, state, title=title, session_id=session_id)
+        mysql_store.delete_empty_sessions(agent_id, keep_session_id=record.session_id)
         return self._to_session(record)
 
     def get(self, session_id: str) -> Session | None:

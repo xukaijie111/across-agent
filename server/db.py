@@ -152,9 +152,16 @@ class MySQLStore:
                         cur.execute(sql)
         self._schema_ready = True
 
-    def create_session(self, agent_id: str, initial_state: dict[str, Any], *, title: str = "") -> SessionRecord:
+    def create_session(
+        self,
+        agent_id: str,
+        initial_state: dict[str, Any],
+        *,
+        title: str = "",
+        session_id: str | None = None,
+    ) -> SessionRecord:
         self.ensure_schema()
-        session_id = uuid.uuid4().hex
+        session_id = session_id or uuid.uuid4().hex
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(

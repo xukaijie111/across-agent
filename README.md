@@ -51,6 +51,41 @@ make agent-dev
 | POST | `/api/chat/resume` | SSE 恢复中断 |
 | POST | `/api/sessions/{id}/reset` | 清空会话 |
 
+## 一键部署到阿里云 ECS
+
+### 1. 配置
+
+```bash
+cp deploy/ecs.env.example deploy/ecs.env
+# 编辑 deploy/ecs.env：ECS_HOST、ECS_PASSWORD（或留空用 SSH 密钥）
+```
+
+根目录 `.env` 需已配置 `OPENAI_API_KEY` 等，部署时会同步到服务器（勿提交 git）。
+
+### 2. 首次全量部署（新机器）
+
+```bash
+chmod +x scripts/deploy-aliyun.sh
+./scripts/deploy-aliyun.sh
+# 或
+make deploy
+```
+
+### 3. 日常更新代码
+
+```bash
+./scripts/deploy-aliyun.sh --update
+# 或
+make deploy-update
+```
+
+### 4. 服务器前置条件
+
+- 安全组放行 **22**（SSH）、**80**（HTTP）
+- 域名解析 A 记录指向 ECS 公网 IP（可选 `DEPLOY_DOMAIN`）
+
+脚本说明：`scripts/deploy-aliyun.sh` · 远程安装：`deploy/setup-server.sh` · 增量：`deploy/update-server.sh`
+
 ## 新增 Agent
 
 1. 在 `server/subagents/<your-agent>/` 实现逻辑  

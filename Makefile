@@ -1,4 +1,10 @@
-.PHONY: agent-api agent-web agent-dev
+.PHONY: agent-api agent-web agent-dev deploy deploy-update
+
+deploy:
+	./scripts/deploy-aliyun.sh
+
+deploy-update:
+	./scripts/deploy-aliyun.sh --update
 
 AGENT_SERVER := server
 AGENT_WEB := web-h5
