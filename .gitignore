@@ -30,7 +30,9 @@ htmlcov/
 
 # Environment variables
 .env
-.env.*
+.env.local
+.env.*.local
+!.env.example
 deploy/ecs.env
 
 # Local data

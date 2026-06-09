@@ -24,9 +24,14 @@ pip install -r server/requirements.txt
 cd web-h5 && npm install
 ```
 
-根目录 `.env` 配置 `OPENAI_API_KEY`（客服与聊天助手均需要）。
+### 2. 配置
 
-### 2. 启动
+```bash
+cp .env.example .env
+# 编辑 .env，填写 OPENAI_API_KEY 等（勿提交 git）
+```
+
+### 3. 启动
 
 ```bash
 ./scripts/start-agents.sh --install   # 首次
@@ -60,7 +65,7 @@ cp deploy/ecs.env.example deploy/ecs.env
 # 编辑 deploy/ecs.env：ECS_HOST、ECS_PASSWORD（或留空用 SSH 密钥）
 ```
 
-根目录 `.env` 需已配置 `OPENAI_API_KEY` 等，部署时会同步到服务器（勿提交 git）。
+本地需有 `.env`（从 `.env.example` 复制）；部署时会同步到服务器，**勿把 `.env` 提交 git**。
 
 ### 2. 首次全量部署（新机器）
 

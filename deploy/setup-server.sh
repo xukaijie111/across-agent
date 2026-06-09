@@ -30,6 +30,10 @@ systemctl enable mysqld nginx
 systemctl start mysqld
 systemctl start nginx
 
+if [[ ! -f "${ENV_FILE}" ]] && [[ -f "${APP_ROOT}/.env.example" ]]; then
+  cp "${APP_ROOT}/.env.example" "${ENV_FILE}"
+  log "已从 .env.example 生成 .env，请填写 OPENAI_API_KEY"
+fi
 touch "${ENV_FILE}"
 
 # 若 .env 已有 MYSQL_PASSWORD 且能连库，则保留
