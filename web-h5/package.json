@@ -9,10 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "dompurify": "^3.4.9",
+    "marked": "^18.0.5",
     "vant": "^4.9.15",
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "@types/dompurify": "^3.0.5",
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "~5.7.2",
     "vite": "^6.0.3",

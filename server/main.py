@@ -15,6 +15,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 from contextlib import asynccontextmanager
 
+import context.bootstrap  # noqa: E402, F401 — 启动时注册上下文治理插件
+
 from chat_persistence import persist_stream  # noqa: E402
 from db import init_mysql  # noqa: E402
 from events import StreamEvent  # noqa: E402
@@ -74,8 +76,11 @@ def _emit_event(event: StreamEvent) -> str:
     return _sse("error", {"message": event.message or "unknown error"})
 
 
+_CHAT_HISTORY_AGENTS = frozenset({"echo", "persona"})
+
+
 def _restore_echo_messages(session) -> None:
-    if session.agent_id != "echo":
+    if session.agent_id not in _CHAT_HISTORY_AGENTS:
         return
     history = []
     for msg in session_store.list_messages(session.session_id):

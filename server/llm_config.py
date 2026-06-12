@@ -1,10 +1,15 @@
-"""从 .env 读取对话 / Embedding 模型，兼容 OPENAI_BASE_URL 别名。"""
+"""从 .env 读取对话 / Embedding 模型；make_chat_llm 默认挂载统一上下文裁剪。"""
 
 from __future__ import annotations
 
 import os
+from typing import Any
 
+from langchain_core.messages import BaseMessage
+from langchain_core.runnables import Runnable, RunnableLambda
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+from context.bridge import govern_prompt_messages
 
 DEFAULT_CHAT_MODEL = "qwen-plus"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-v3"
@@ -23,16 +28,24 @@ def embedding_model_name() -> str:
     return os.getenv("OPENAI_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
 
 
-def make_chat_llm(*, temperature: float = 0.7, streaming: bool = False) -> ChatOpenAI:
+def _govern_messages_input(input: Any) -> Any:
+    if isinstance(input, list) and input and isinstance(input[0], BaseMessage):
+        return govern_prompt_messages(input)
+    return input
+
+
+def make_chat_llm(*, temperature: float = 0.7, streaming: bool = False, govern: bool = True) -> Runnable:
     _ensure_openai_env()
-    return ChatOpenAI(model=chat_model_name(), temperature=temperature, streaming=streaming)
+    llm = ChatOpenAI(model=chat_model_name(), temperature=temperature, streaming=streaming)
+    if govern:
+        return RunnableLambda(_govern_messages_input) | llm
+    return llm
 
 
 def make_embeddings() -> OpenAIEmbeddings:
     _ensure_openai_env()
-    # 百炼等 OpenAI 兼容端点只接受原始字符串，不能先 tokenize
     return OpenAIEmbeddings(
         model=embedding_model_name(),
         check_embedding_ctx_length=False,
-        chunk_size=10,  # 百炼 embedding 单次 batch 上限 10
+        chunk_size=10,
     )

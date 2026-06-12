@@ -1,27 +1,25 @@
 """
 Customer Support Agent using LangGraph with RAG + HITL interrupt.
 
-Handles customer queries using a knowledge base (product docs).
+Handles customer queries using a pre-segmented knowledge base (SAMPLE_KB).
 When user explicitly requests return/refund, LLM calls a confirmation tool
 and the graph interrupts until the user confirms or cancels.
 
 Usage:
     python agent.py
-    python agent.py --kb-dir docs/
 """
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 from typing import Annotated, Literal, TypedDict
 
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from llm_config import make_chat_llm, make_embeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from checkpoint_store import get_checkpointer
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
@@ -72,10 +70,9 @@ def retrieve_context(state: SupportState) -> SupportState:
     query = state["user_input"]
     if not hasattr(retrieve_context, "vectorstore"):
         texts = getattr(retrieve_context, "kb_texts", SAMPLE_KB)
-        splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=20)
-        docs_split = splitter.create_documents(texts)
+        docs = [Document(page_content=t) for t in texts]
         embeddings = make_embeddings()
-        retrieve_context.vectorstore = FAISS.from_documents(docs_split, embeddings)
+        retrieve_context.vectorstore = FAISS.from_documents(docs, embeddings)
 
     docs = retrieve_context.vectorstore.similarity_search(query, k=3)
     context = "\n".join(d.page_content for d in docs)
@@ -258,31 +255,8 @@ def new_state() -> dict:
     }
 
 
-def load_kb_texts(kb_dir: str | None) -> list[str]:
-    if not kb_dir:
-        return SAMPLE_KB
-
-    root = Path(kb_dir)
-    if not root.is_dir():
-        raise ValueError(f"Knowledge base directory does not exist: {kb_dir}")
-
-    texts = []
-    for path in sorted(root.rglob("*")):
-        if path.is_file() and path.suffix.lower() in {".txt", ".md"}:
-            texts.append(path.read_text(encoding="utf-8"))
-
-    if not texts:
-        raise ValueError(f"No .txt or .md files found in knowledge base directory: {kb_dir}")
-
-    return texts
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Customer Support Agent")
-    parser.add_argument("--kb-dir", help="Directory containing .txt or .md support knowledge base files")
-    args = parser.parse_args()
-
-    retrieve_context.kb_texts = load_kb_texts(args.kb_dir)
+    retrieve_context.kb_texts = SAMPLE_KB
     if hasattr(retrieve_context, "vectorstore"):
         delattr(retrieve_context, "vectorstore")
 

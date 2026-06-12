@@ -24,15 +24,19 @@ const emit = defineEmits<{
       <van-cell
         v-for="agent in agents"
         :key="agent.id"
-        :title="agent.name"
-        :label="agent.description"
         :class="{ active: agent.id === activeAgentId }"
         is-link
         @click="emit('selectAgent', agent.id)"
       >
-        <template #value>
-          <van-tag v-if="!agent.enabled" type="default">未启用</van-tag>
-          <van-tag v-else-if="agent.id === activeAgentId" type="success">当前</van-tag>
+        <template #title>
+          <div class="agent-item">
+            <div class="agent-item__head">
+              <span class="agent-item__name">{{ agent.name }}</span>
+              <van-tag v-if="!agent.enabled" type="default">未启用</van-tag>
+              <van-tag v-else-if="agent.id === activeAgentId" type="success">当前</van-tag>
+            </div>
+            <div class="agent-item__desc">{{ agent.description }}</div>
+          </div>
         </template>
       </van-cell>
     </van-cell-group>
@@ -92,7 +96,39 @@ const emit = defineEmits<{
   padding: 0 4px;
 }
 
+.agent-item {
+  width: 100%;
+  padding-right: 8px;
+}
+
+.agent-item__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agent-item__name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #323233;
+}
+
+.agent-item__desc {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #969799;
+  white-space: normal;
+  word-break: break-word;
+}
+
 :deep(.van-cell.active) {
   background: #f0f9ff;
+}
+
+:deep(.van-cell__title) {
+  flex: 1;
+  min-width: 0;
 }
 </style>

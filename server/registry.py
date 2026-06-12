@@ -52,6 +52,12 @@ def list_agents() -> list[AgentInfo]:
 def load_runners() -> None:
     from runners.customer_support import CustomerSupportRunner
     from runners.echo import EchoRunner
+    from runners.meeting_notes import MeetingNotesRunner
+    from runners.persona import PersonaRunner
+    from runners.sql_query import SqlQueryRunner
 
+    register(PersonaRunner())
     register(CustomerSupportRunner())
     register(EchoRunner())
+    register(MeetingNotesRunner())
+    register(SqlQueryRunner())

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { nextTick, onUnmounted, ref, watch } from "vue";
 import { showFailToast, showToast } from "vant";
 import {
   clearStoredSessionId,
@@ -11,6 +11,8 @@ import {
 } from "../api/agents";
 import { streamChat, streamResume } from "../api/sse";
 import { syncChatUrl } from "../lib/chatUrl";
+import { renderMarkdown } from "../lib/renderMarkdown";
+import { createStreamReveal, type StreamRevealHandle } from "../lib/streamReveal";
 import type { AgentInfo, ChatMessage, HistoryMessage, InterruptPayload } from "../types";
 
 const props = defineProps<{
@@ -30,19 +32,109 @@ const loading = ref(false);
 const pendingInterrupt = ref(false);
 const messages = ref<ChatMessage[]>([]);
 const listRef = ref<HTMLElement | null>(null);
+const inputRef = ref<HTMLTextAreaElement | null>(null);
 const initialized = ref(false);
+const stickToBottom = ref(true);
 
 let abortController: AbortController | null = null;
+let streamReveal: StreamRevealHandle | null = null;
+
+function stopStreamReveal() {
+  streamReveal?.cancel();
+  streamReveal = null;
+}
+
+function startStreamReveal(assistantId: string, onRevealDone?: () => void) {
+  stopStreamReveal();
+  streamReveal = createStreamReveal(
+    (visible) => {
+      const idx = messages.value.findIndex((m) => m.id === assistantId);
+      if (idx < 0) {
+        return;
+      }
+      messages.value[idx] = {
+        ...messages.value[idx],
+        content: visible,
+        awaitingAction: false,
+      };
+      void scrollToBottom(true);
+    },
+    () => {
+      const idx = messages.value.findIndex((m) => m.id === assistantId);
+      if (idx >= 0) {
+        messages.value[idx] = {
+          ...messages.value[idx],
+          streaming: false,
+          awaitingAction: false,
+          interrupt: undefined,
+        };
+      }
+      stopStreamReveal();
+      void scrollToBottom(true);
+      onRevealDone?.();
+    },
+  );
+}
+
+const inputMaxLength = () => (props.agent.id === "meeting-notes" ? 20000 : 500);
+
+const inputPlaceholder = () => {
+  if (pendingInterrupt.value) {
+    return "请先确认或取消上方操作";
+  }
+  if (props.agent.id === "meeting-notes") {
+    return "粘贴会议文字稿…";
+  }
+  return "输入消息...";
+};
+
+function showMarkdown(msg: ChatMessage): boolean {
+  return msg.role === "assistant" && !msg.streaming && !msg.awaitingAction;
+}
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function scrollToBottom() {
-  await nextTick();
-  if (listRef.value) {
-    listRef.value.scrollTop = listRef.value.scrollHeight;
+function onListScroll() {
+  const el = listRef.value;
+  if (!el) {
+    return;
   }
+  const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+  stickToBottom.value = distance < 80;
+}
+
+async function scrollToBottom(force = false) {
+  if (!force && !stickToBottom.value) {
+    return;
+  }
+  await nextTick();
+  requestAnimationFrame(() => {
+    const el = listRef.value;
+    if (!el) {
+      return;
+    }
+    el.scrollTop = el.scrollHeight;
+  });
+}
+
+function resizeInput() {
+  const el = inputRef.value;
+  if (!el) {
+    return;
+  }
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+}
+
+async function focusInput() {
+  await nextTick();
+  const el = inputRef.value;
+  if (!el || el.disabled) {
+    return;
+  }
+  el.focus({ preventScroll: true });
 }
 
 function hydrateMessages(rows: HistoryMessage[]) {
@@ -72,15 +164,11 @@ function handleStreamEvents(assistantId: string, onDone?: () => void) {
     }
 
     if (event === "delta" && typeof data.content === "string") {
-      messages.value[idx] = {
-        ...messages.value[idx],
-        content: messages.value[idx].content + data.content,
-        awaitingAction: false,
-      };
-      void scrollToBottom();
+      streamReveal?.append(data.content);
     }
 
     if (event === "interrupt") {
+      stopStreamReveal();
       const interrupt = {
         type: String(data.type ?? "return_confirm"),
         prompt: String(data.prompt ?? "请确认是否继续"),
@@ -98,18 +186,23 @@ function handleStreamEvents(assistantId: string, onDone?: () => void) {
     }
 
     if (event === "done" && typeof data.content === "string") {
-      messages.value[idx] = {
-        ...messages.value[idx],
-        content: data.content,
-        streaming: false,
-        awaitingAction: false,
-        interrupt: undefined,
-      };
       pendingInterrupt.value = false;
       onDone?.();
+      if (streamReveal) {
+        streamReveal.finish(data.content);
+      } else {
+        messages.value[idx] = {
+          ...messages.value[idx],
+          content: data.content,
+          streaming: false,
+          awaitingAction: false,
+          interrupt: undefined,
+        };
+      }
     }
 
     if (event === "error") {
+      stopStreamReveal();
       const msg = typeof data.message === "string" ? data.message : "未知错误";
       messages.value[idx] = {
         ...messages.value[idx],
@@ -137,15 +230,17 @@ async function initSession(preferredSessionId?: string, showTip = false) {
     }
   }
 
-  await scrollToBottom();
+  await scrollToBottom(true);
   if (showTip) {
     showToast(session.resumed ? `已恢复：${props.agent.name}` : `已就绪：${props.agent.name}`);
   }
+  await focusInput();
 }
 
 async function openSession(targetSessionId: string, showTip = false) {
   abortController?.abort();
   abortController = null;
+  stopStreamReveal();
   loading.value = false;
 
   const session = await createSession(props.agent.id, targetSessionId);
@@ -164,6 +259,7 @@ async function openSession(targetSessionId: string, showTip = false) {
 async function newSession() {
   abortController?.abort();
   abortController = null;
+  stopStreamReveal();
   clearStoredSessionId(props.agent.id);
 
   const session = await createSession(props.agent.id);
@@ -182,6 +278,7 @@ async function clearChat() {
   }
   abortController?.abort();
   abortController = null;
+  stopStreamReveal();
   await resetSession(sessionId.value);
   messages.value = [];
   input.value = "";
@@ -197,12 +294,15 @@ async function sendMessage() {
   }
 
   input.value = "";
+  resizeInput();
   loading.value = true;
+  stickToBottom.value = true;
   messages.value.push({ id: uid(), role: "user", content: text });
 
   const assistantId = uid();
   messages.value.push({ id: assistantId, role: "assistant", content: "", streaming: true });
-  await scrollToBottom();
+  startStreamReveal(assistantId);
+  await scrollToBottom(true);
 
   abortController = new AbortController();
 
@@ -216,6 +316,7 @@ async function sendMessage() {
       abortController.signal,
     );
   } catch (err) {
+    stopStreamReveal();
     const idx = messages.value.findIndex((m) => m.id === assistantId);
     const msg = err instanceof Error ? err.message : "请求失败";
     if (idx >= 0) {
@@ -229,11 +330,10 @@ async function sendMessage() {
   } finally {
     loading.value = false;
     abortController = null;
-    const idx = messages.value.findIndex((m) => m.id === assistantId);
-    if (idx >= 0 && messages.value[idx].streaming && !messages.value[idx].awaitingAction) {
-      messages.value[idx] = { ...messages.value[idx], streaming: false };
-    }
     await scrollToBottom();
+    if (!pendingInterrupt.value && !streamReveal?.isRunning()) {
+      await focusInput();
+    }
   }
 }
 
@@ -258,6 +358,7 @@ async function handleResume(decision: "confirm" | "cancel", sourceMessageId: str
 
   const assistantId = uid();
   messages.value.push({ id: assistantId, role: "assistant", content: "", streaming: true });
+  startStreamReveal(assistantId);
   await scrollToBottom();
 
   abortController = new AbortController();
@@ -270,6 +371,7 @@ async function handleResume(decision: "confirm" | "cancel", sourceMessageId: str
       abortController.signal,
     );
   } catch (err) {
+    stopStreamReveal();
     const msg = err instanceof Error ? err.message : "请求失败";
     const target = messages.value.findIndex((m) => m.id === assistantId);
     if (target >= 0) {
@@ -284,8 +386,15 @@ async function handleResume(decision: "confirm" | "cancel", sourceMessageId: str
     loading.value = false;
     abortController = null;
     await scrollToBottom();
+    if (!pendingInterrupt.value && !streamReveal?.isRunning()) {
+      await focusInput();
+    }
   }
 }
+
+onUnmounted(() => {
+  stopStreamReveal();
+});
 
 watch(
   () => props.active,
@@ -327,7 +436,7 @@ defineExpose({
       </template>
     </van-nav-bar>
 
-    <main ref="listRef" class="chat-list">
+    <main ref="listRef" class="chat-list" @scroll="onListScroll">
       <van-empty v-if="messages.length === 0" description="发一条消息开始调试" />
       <div
         v-for="msg in messages"
@@ -336,7 +445,12 @@ defineExpose({
         :class="msg.role === 'user' ? 'bubble-row--user' : 'bubble-row--assistant'"
       >
         <div class="bubble" :class="msg.role">
-          <span>{{ msg.content }}</span>
+          <div
+            v-if="showMarkdown(msg)"
+            class="bubble__markdown"
+            v-html="renderMarkdown(msg.content)"
+          />
+          <span v-else>{{ msg.content }}</span>
           <van-loading v-if="msg.streaming" size="14px" class="bubble__loading" />
           <div v-if="msg.awaitingAction" class="confirm-actions">
             <van-button
@@ -361,21 +475,23 @@ defineExpose({
     </main>
 
     <footer class="composer safe-area-bottom">
-      <van-field
+      <textarea
+        ref="inputRef"
         v-model="input"
+        class="composer__input"
         rows="1"
-        autosize
-        type="textarea"
-        maxlength="500"
-        :placeholder="pendingInterrupt ? '请先确认或取消上方操作' : '输入消息...'"
-        :disabled="loading || !sessionId || pendingInterrupt"
-        @keypress.enter.exact.prevent="sendMessage"
+        :maxlength="inputMaxLength()"
+        :placeholder="inputPlaceholder()"
+        :disabled="!sessionId || pendingInterrupt"
+        @input="resizeInput"
+        @keydown.enter.exact.prevent="sendMessage"
       />
       <van-button
         type="primary"
         size="small"
         :loading="loading"
         :disabled="!input.trim() || !sessionId || pendingInterrupt"
+        @mousedown.prevent
         @click="sendMessage"
       >
         发送
@@ -454,6 +570,9 @@ defineExpose({
   font-size: 15px;
   line-height: 1.5;
   word-break: break-word;
+}
+
+.bubble > span {
   white-space: pre-wrap;
 }
 
@@ -468,6 +587,57 @@ defineExpose({
   color: #1f2329;
   border-bottom-left-radius: 4px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.bubble__markdown :deep(h1) {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.bubble__markdown :deep(h2) {
+  margin: 12px 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.bubble__markdown :deep(p) {
+  margin: 0 0 8px;
+}
+
+.bubble__markdown :deep(ul) {
+  margin: 0 0 8px;
+  padding-left: 1.2em;
+}
+
+.bubble__markdown :deep(li) {
+  margin-bottom: 4px;
+}
+
+.bubble__markdown :deep(strong) {
+  font-weight: 600;
+}
+
+.bubble__markdown :deep(code) {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #f2f3f5;
+  font-size: 0.92em;
+}
+
+.bubble__markdown :deep(pre) {
+  margin: 8px 0;
+  padding: 10px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: #f2f3f5;
+}
+
+.bubble__markdown :deep(pre code) {
+  padding: 0;
+  background: transparent;
 }
 
 .bubble__loading {
@@ -491,10 +661,28 @@ defineExpose({
   border-top: 1px solid #ebedf0;
 }
 
-.composer :deep(.van-field) {
+.composer__input {
   flex: 1;
-  background: #f7f8fa;
+  min-height: 36px;
+  max-height: 120px;
+  padding: 8px 12px;
+  border: none;
   border-radius: 10px;
+  background: #f7f8fa;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  color: #323233;
+}
+
+.composer__input:disabled {
+  color: #c8c9cc;
+  background: #f2f3f5;
+}
+
+.composer__input::placeholder {
+  color: #c8c9cc;
 }
 
 .safe-area-bottom {
