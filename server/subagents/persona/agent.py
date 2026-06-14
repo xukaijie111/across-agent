@@ -30,7 +30,7 @@ load_dotenv(SERVER_ROOT / ".env")
 
 PERSONA_NAME = "徐开洁"
 
-_BUILTIN_DOC_REVISION = "persona-v6"
+_BUILTIN_DOC_REVISION = "persona-v8"
 
 _vectorstore: FAISS | None = None
 _doc_source = "builtin"
