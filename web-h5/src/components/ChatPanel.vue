@@ -645,7 +645,8 @@ defineExpose({
 
 .chat-panel--welcome {
   background: var(--color-bg-welcome);
-  justify-content: center;
+  justify-content: flex-start;
+  padding-top: 20vh;
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -698,22 +699,55 @@ defineExpose({
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
-  margin-top: 28px;
+  gap: 8px;
+  margin-top: 24px;
   margin-bottom: 4px;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .welcome__chip {
   border: 1px solid var(--color-chip-border);
   background: var(--color-chip-bg);
   color: #2f3a5c;
-  padding: 10px 18px;
+  padding: 8px 14px;
   border-radius: 999px;
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.35;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
   box-shadow: 0 1px 2px rgba(79, 110, 247, 0.06);
+}
+
+@media (max-width: 480px) {
+  .chat-panel--welcome {
+    padding-top: 16vh;
+  }
+
+  .welcome__title {
+    font-size: 24px;
+  }
+
+  .welcome__subtitle {
+    font-size: 14px;
+    margin-top: 8px;
+  }
+
+  .welcome__chips {
+    gap: 8px;
+    margin-top: 18px;
+    max-width: 100%;
+  }
+
+  .welcome__chip {
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+
+  .chat-panel--welcome .composer {
+    margin-top: 14px;
+  }
 }
 
 .welcome__chip:hover:not(:disabled) {
