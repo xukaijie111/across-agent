@@ -1,4 +1,9 @@
+import { getUserId } from "../lib/userId";
 import type { AgentInfo, HistoryMessage, SessionDetail, SessionSummary } from "../types";
+
+function uid() {
+  return getUserId();
+}
 
 export async function fetchAgents(): Promise<AgentInfo[]> {
   const res = await fetch("/api/agents");
@@ -9,7 +14,9 @@ export async function fetchAgents(): Promise<AgentInfo[]> {
 }
 
 export async function fetchSession(sessionId: string): Promise<SessionDetail> {
-  const res = await fetch(`/api/sessions/${sessionId}`);
+  const res = await fetch(
+    `/api/sessions/${sessionId}?user_id=${encodeURIComponent(uid())}`,
+  );
   if (!res.ok) {
     throw new Error(`会话不存在: ${res.status}`);
   }
@@ -25,6 +32,7 @@ export async function createSession(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       agent_id: agentId,
+      user_id: uid(),
       resume_session_id: resumeSessionId || null,
     }),
   });
@@ -36,7 +44,9 @@ export async function createSession(
 }
 
 export async function fetchSessionMessages(sessionId: string): Promise<HistoryMessage[]> {
-  const res = await fetch(`/api/sessions/${sessionId}/messages`);
+  const res = await fetch(
+    `/api/sessions/${sessionId}/messages?user_id=${encodeURIComponent(uid())}`,
+  );
   if (!res.ok) {
     return [];
   }
@@ -44,7 +54,9 @@ export async function fetchSessionMessages(sessionId: string): Promise<HistoryMe
 }
 
 export async function fetchSessions(agentId: string): Promise<SessionSummary[]> {
-  const res = await fetch(`/api/sessions?agent_id=${encodeURIComponent(agentId)}`);
+  const res = await fetch(
+    `/api/sessions?agent_id=${encodeURIComponent(agentId)}&user_id=${encodeURIComponent(uid())}`,
+  );
   if (!res.ok) {
     return [];
   }
@@ -52,14 +64,18 @@ export async function fetchSessions(agentId: string): Promise<SessionSummary[]> 
 }
 
 export async function resetSession(sessionId: string): Promise<void> {
-  const res = await fetch(`/api/sessions/${sessionId}/reset`, { method: "POST" });
+  const res = await fetch(`/api/sessions/${sessionId}/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: uid() }),
+  });
   if (!res.ok) {
     throw new Error(`重置会话失败: ${res.status}`);
   }
 }
 
 export function sessionStorageKey(agentId: string): string {
-  return `agent_session_${agentId}`;
+  return `agent_session_${uid()}_${agentId}`;
 }
 
 export function readStoredSessionId(agentId: string): string | null {

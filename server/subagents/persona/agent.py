@@ -30,7 +30,7 @@ load_dotenv(SERVER_ROOT / ".env")
 
 PERSONA_NAME = "徐开洁"
 
-_BUILTIN_DOC_REVISION = "persona-v4"
+_BUILTIN_DOC_REVISION = "persona-v6"
 
 _vectorstore: FAISS | None = None
 _doc_source = "builtin"
@@ -88,7 +88,7 @@ def build_index(doc_text: str) -> FAISS:
 
 
 def get_vectorstore() -> FAISS:
-    global _vectorstore, _index_revision
+    global _vectorstore, _doc_source, _index_revision
     stale = _vectorstore is None or (
         _doc_source == "builtin" and _index_revision != _BUILTIN_DOC_REVISION
     )

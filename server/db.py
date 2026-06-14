@@ -17,11 +17,12 @@ SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS agent_sessions (
     session_id VARCHAR(64) PRIMARY KEY,
     agent_id VARCHAR(64) NOT NULL,
+    user_id VARCHAR(64) NOT NULL DEFAULT '',
     title VARCHAR(255) NOT NULL DEFAULT '',
     state_json JSON NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_agent_updated (agent_id, updated_at)
+    INDEX idx_agent_user_updated (agent_id, user_id, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS lg_writes (
 class SessionRecord:
     session_id: str
     agent_id: str
+    user_id: str
     title: str
     state: dict[str, Any]
     created_at: datetime
@@ -141,6 +143,29 @@ class MySQLStore:
         finally:
             conn.close()
 
+    def _migrate_schema(self, cur: pymysql.cursors.Cursor) -> None:
+        cur.execute("SHOW COLUMNS FROM agent_sessions LIKE 'user_id'")
+        if not cur.fetchone():
+            cur.execute(
+                "ALTER TABLE agent_sessions ADD COLUMN user_id VARCHAR(64) NOT NULL DEFAULT '' AFTER agent_id"
+            )
+            cur.execute(
+                "CREATE INDEX idx_agent_user_updated ON agent_sessions (agent_id, user_id, updated_at)"
+            )
+
+    def _row_to_session(self, row: dict[str, Any]) -> SessionRecord:
+        return SessionRecord(
+            session_id=row["session_id"],
+            agent_id=row["agent_id"],
+            user_id=row.get("user_id") or "",
+            title=row["title"] or "",
+            state=json.loads(row["state_json"])
+            if isinstance(row["state_json"], (str, bytes))
+            else row["state_json"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
     def ensure_schema(self) -> None:
         if self._schema_ready:
             return
@@ -150,6 +175,7 @@ class MySQLStore:
                     sql = stmt.strip()
                     if sql:
                         cur.execute(sql)
+                self._migrate_schema(cur)
         self._schema_ready = True
 
     def create_session(
@@ -157,6 +183,7 @@ class MySQLStore:
         agent_id: str,
         initial_state: dict[str, Any],
         *,
+        user_id: str,
         title: str = "",
         session_id: str | None = None,
     ) -> SessionRecord:
@@ -166,15 +193,22 @@ class MySQLStore:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO agent_sessions (session_id, agent_id, title, state_json)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO agent_sessions (session_id, agent_id, user_id, title, state_json)
+                    VALUES (%s, %s, %s, %s, %s)
                     """,
-                    (session_id, agent_id, title, json.dumps(initial_state, ensure_ascii=False)),
+                    (
+                        session_id,
+                        agent_id,
+                        user_id,
+                        title,
+                        json.dumps(initial_state, ensure_ascii=False),
+                    ),
                 )
         now = datetime.utcnow()
         return SessionRecord(
             session_id=session_id,
             agent_id=agent_id,
+            user_id=user_id,
             title=title,
             state=initial_state,
             created_at=now,
@@ -186,20 +220,16 @@ class MySQLStore:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT session_id, agent_id, title, state_json, created_at, updated_at FROM agent_sessions WHERE session_id = %s",
+                    """
+                    SELECT session_id, agent_id, user_id, title, state_json, created_at, updated_at
+                    FROM agent_sessions WHERE session_id = %s
+                    """,
                     (session_id,),
                 )
                 row = cur.fetchone()
         if not row:
             return None
-        return SessionRecord(
-            session_id=row["session_id"],
-            agent_id=row["agent_id"],
-            title=row["title"] or "",
-            state=json.loads(row["state_json"]) if isinstance(row["state_json"], (str, bytes)) else row["state_json"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
+        return self._row_to_session(row)
 
     def update_session_state(self, session_id: str, state: dict[str, Any]) -> None:
         self.ensure_schema()
@@ -221,37 +251,25 @@ class MySQLStore:
                     (title[:255], session_id),
                 )
 
-    def list_sessions(self, agent_id: str, *, limit: int = 30) -> list[SessionRecord]:
-        """只返回有过聊天记录的 session，过滤空会话。"""
+    def list_sessions(self, agent_id: str, user_id: str, *, limit: int = 30) -> list[SessionRecord]:
+        """只返回该用户、有过聊天记录的 session，过滤空会话。"""
         self.ensure_schema()
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT s.session_id, s.agent_id, s.title, s.state_json, s.created_at, s.updated_at
+                    SELECT s.session_id, s.agent_id, s.user_id, s.title, s.state_json, s.created_at, s.updated_at
                     FROM agent_sessions s
                     INNER JOIN chat_messages m ON m.session_id = s.session_id
-                    WHERE s.agent_id = %s
-                    GROUP BY s.session_id, s.agent_id, s.title, s.state_json, s.created_at, s.updated_at
+                    WHERE s.agent_id = %s AND s.user_id = %s
+                    GROUP BY s.session_id, s.agent_id, s.user_id, s.title, s.state_json, s.created_at, s.updated_at
                     ORDER BY s.updated_at DESC
                     LIMIT %s
                     """,
-                    (agent_id, limit),
+                    (agent_id, user_id, limit),
                 )
                 rows = cur.fetchall()
-        result: list[SessionRecord] = []
-        for row in rows:
-            result.append(
-                SessionRecord(
-                    session_id=row["session_id"],
-                    agent_id=row["agent_id"],
-                    title=row["title"] or "",
-                    state=json.loads(row["state_json"]) if isinstance(row["state_json"], (str, bytes)) else row["state_json"],
-                    created_at=row["created_at"],
-                    updated_at=row["updated_at"],
-                )
-            )
-        return result
+        return [self._row_to_session(row) for row in rows]
 
     def reset_session(self, session_id: str, initial_state: dict[str, Any]) -> SessionRecord | None:
         session = self.get_session(session_id)
@@ -325,7 +343,9 @@ class MySQLStore:
             created_at=now,
         )
 
-    def delete_empty_sessions(self, agent_id: str, *, keep_session_id: str | None = None) -> None:
+    def delete_empty_sessions(
+        self, agent_id: str, user_id: str, *, keep_session_id: str | None = None
+    ) -> None:
         self.ensure_schema()
         with self._conn() as conn:
             with conn.cursor() as cur:
@@ -335,19 +355,20 @@ class MySQLStore:
                         DELETE s FROM agent_sessions s
                         LEFT JOIN chat_messages m ON m.session_id = s.session_id
                         WHERE s.agent_id = %s
+                          AND s.user_id = %s
                           AND s.session_id <> %s
                           AND m.message_id IS NULL
                         """,
-                        (agent_id, keep_session_id),
+                        (agent_id, user_id, keep_session_id),
                     )
                 else:
                     cur.execute(
                         """
                         DELETE s FROM agent_sessions s
                         LEFT JOIN chat_messages m ON m.session_id = s.session_id
-                        WHERE s.agent_id = %s AND m.message_id IS NULL
+                        WHERE s.agent_id = %s AND s.user_id = %s AND m.message_id IS NULL
                         """,
-                        (agent_id,),
+                        (agent_id, user_id),
                     )
 
     def clear_awaiting_messages(self, session_id: str) -> None:

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -22,6 +22,7 @@ from db import init_mysql  # noqa: E402
 from events import StreamEvent  # noqa: E402
 from registry import get_runner, list_agents, load_runners  # noqa: E402
 from sessions import session_store  # noqa: E402
+from stt import transcribe_wav_file  # noqa: E402
 
 
 @asynccontextmanager
@@ -43,6 +44,7 @@ app.add_middleware(
 
 class CreateSessionRequest(BaseModel):
     agent_id: str
+    user_id: str = Field(min_length=8, max_length=64)
     resume_session_id: str | None = None
 
 
@@ -54,12 +56,22 @@ class CreateSessionResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str
+    user_id: str = Field(min_length=8, max_length=64)
     message: str = Field(min_length=1)
 
 
 class ResumeRequest(BaseModel):
     session_id: str
+    user_id: str = Field(min_length=8, max_length=64)
     decision: Literal["confirm", "cancel"]
+
+
+class ResetSessionRequest(BaseModel):
+    user_id: str = Field(min_length=8, max_length=64)
+
+
+class SttResponse(BaseModel):
+    text: str
 
 
 def _sse(event: str, payload: dict[str, Any]) -> str:
@@ -110,6 +122,49 @@ def health() -> dict[str, Any]:
     return {"status": "ok", "mysql": True}
 
 
+@app.post("/api/stt", response_model=SttResponse)
+async def speech_to_text(audio: UploadFile = File(...)) -> SttResponse:
+    if not audio.filename:
+        raise HTTPException(status_code=400, detail="未上传音频文件")
+
+    content_type = (audio.content_type or "").lower()
+    if content_type and "audio" not in content_type and content_type != "application/octet-stream":
+        raise HTTPException(status_code=400, detail="仅支持音频文件")
+
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="音频文件为空")
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="音频文件过大（最大 10MB）")
+
+    import tempfile
+
+    suffix = ".wav"
+    if audio.filename.lower().endswith(".mp3"):
+        suffix = ".mp3"
+    elif audio.filename.lower().endswith(".webm"):
+        suffix = ".webm"
+
+    tmp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(raw)
+            tmp_path = tmp.name
+
+        if suffix != ".wav":
+            raise HTTPException(status_code=400, detail="请上传 16kHz 单声道 WAV 音频")
+
+        text = transcribe_wav_file(tmp_path)
+        return SttResponse(text=text)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
+
+
 @app.get("/api/agents")
 def agents() -> list[dict[str, Any]]:
     return [
@@ -124,8 +179,10 @@ def agents() -> list[dict[str, Any]]:
 
 
 @app.get("/api/sessions")
-def list_sessions(agent_id: str, limit: int = 30) -> list[dict[str, Any]]:
-    sessions = session_store.list_by_agent(agent_id, limit=limit)
+def list_sessions(agent_id: str, user_id: str, limit: int = 30) -> list[dict[str, Any]]:
+    if len(user_id) < 8:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    sessions = session_store.list_by_agent(agent_id, user_id, limit=limit)
     return [
         {
             "session_id": s.session_id,
@@ -138,8 +195,8 @@ def list_sessions(agent_id: str, limit: int = 30) -> list[dict[str, Any]]:
 
 
 @app.get("/api/sessions/{session_id}")
-def get_session(session_id: str) -> dict[str, Any]:
-    session = session_store.get(session_id)
+def get_session(session_id: str, user_id: str) -> dict[str, Any]:
+    session = session_store.get_for_user(session_id, user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     _restore_echo_messages(session)
@@ -155,8 +212,8 @@ def get_session(session_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/sessions/{session_id}/messages")
-def get_session_messages(session_id: str) -> list[dict[str, Any]]:
-    session = session_store.get(session_id)
+def get_session_messages(session_id: str, user_id: str) -> list[dict[str, Any]]:
+    session = session_store.get_for_user(session_id, user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return [_message_to_client(m) for m in session_store.list_messages(session_id)]
@@ -172,7 +229,7 @@ def create_session(body: CreateSessionRequest) -> CreateSessionResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if body.resume_session_id:
-        existing = session_store.get(body.resume_session_id)
+        existing = session_store.get_for_user(body.resume_session_id, body.user_id)
         if existing and existing.agent_id == body.agent_id:
             _restore_echo_messages(existing)
             return CreateSessionResponse(
@@ -181,13 +238,13 @@ def create_session(body: CreateSessionRequest) -> CreateSessionResponse:
                 resumed=True,
             )
 
-    session = session_store.create(body.agent_id, runner.create_state())
+    session = session_store.create(body.agent_id, body.user_id, runner.create_state())
     return CreateSessionResponse(session_id=session.session_id, agent_id=session.agent_id, resumed=False)
 
 
 @app.post("/api/sessions/{session_id}/reset")
-def reset_session(session_id: str) -> dict[str, str]:
-    session = session_store.get(session_id)
+def reset_session(session_id: str, body: ResetSessionRequest) -> dict[str, str]:
+    session = session_store.get_for_user(session_id, body.user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     runner = get_runner(session.agent_id)
@@ -198,7 +255,7 @@ def reset_session(session_id: str) -> dict[str, str]:
 
 @app.post("/api/chat/stream")
 async def chat_stream(body: ChatRequest) -> StreamingResponse:
-    session = session_store.get(body.session_id)
+    session = session_store.get_for_user(body.session_id, body.user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -241,7 +298,7 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
 
 @app.post("/api/chat/resume")
 async def chat_resume(body: ResumeRequest) -> StreamingResponse:
-    session = session_store.get(body.session_id)
+    session = session_store.get_for_user(body.session_id, body.user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 

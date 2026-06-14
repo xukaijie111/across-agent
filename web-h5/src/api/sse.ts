@@ -1,3 +1,4 @@
+import { getUserId } from "../lib/userId";
 import type { SseHandler } from "../types";
 
 function parseSseBlock(block: string): { event: string; data: string } | null {
@@ -67,7 +68,7 @@ export async function streamChat(
   const res = await fetch("/api/chat/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId, message }),
+    body: JSON.stringify({ session_id: sessionId, user_id: getUserId(), message }),
     signal,
   });
   await consumeSseResponse(res, onEvent, signal);
@@ -82,7 +83,7 @@ export async function streamResume(
   const res = await fetch("/api/chat/resume", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId, decision }),
+    body: JSON.stringify({ session_id: sessionId, user_id: getUserId(), decision }),
     signal,
   });
   await consumeSseResponse(res, onEvent, signal);

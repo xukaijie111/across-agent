@@ -139,7 +139,7 @@ def build_index(doc_text: str) -> FAISS:
 
 
 def get_vectorstore() -> FAISS:
-    global _vectorstore, _index_revision
+    global _vectorstore, _doc_source, _index_revision
     stale = _vectorstore is None or (
         _doc_source == "builtin" and _index_revision != _BUILTIN_DOC_REVISION
     )

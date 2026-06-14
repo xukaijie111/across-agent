@@ -10,7 +10,9 @@ import {
   writeStoredSessionId,
 } from "../api/agents";
 import { streamChat, streamResume } from "../api/sse";
+import { transcribeAudio } from "../api/stt";
 import { syncChatUrl } from "../lib/chatUrl";
+import { createAudioRecorder, isAudioRecordSupported, type AudioRecorderHandle } from "../lib/audioRecord";
 import { renderMarkdown } from "../lib/renderMarkdown";
 import { createStreamReveal, type StreamRevealHandle } from "../lib/streamReveal";
 import type { AgentInfo, ChatMessage, HistoryMessage, InterruptPayload } from "../types";
@@ -35,9 +37,14 @@ const listRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const initialized = ref(false);
 const stickToBottom = ref(true);
+const speechSupported = ref(isAudioRecordSupported());
+const speechListening = ref(false);
+const speechTranscribing = ref(false);
 
 let abortController: AbortController | null = null;
 let streamReveal: StreamRevealHandle | null = null;
+let audioRecorder: AudioRecorderHandle | null = null;
+let speechBase = "";
 
 function stopStreamReveal() {
   streamReveal?.cancel();
@@ -79,17 +86,91 @@ function startStreamReveal(assistantId: string, onRevealDone?: () => void) {
 const inputMaxLength = () => (props.agent.id === "meeting-notes" ? 20000 : 500);
 
 const inputPlaceholder = () => {
+  if (speechTranscribing.value) {
+    return "正在识别语音…";
+  }
+  if (speechListening.value) {
+    return "正在录音，点麦克风结束…";
+  }
   if (pendingInterrupt.value) {
     return "请先确认或取消上方操作";
   }
   if (props.agent.id === "meeting-notes") {
     return "粘贴会议文字稿…";
   }
-  return "输入消息...";
+  return "输入消息，或点麦克风语音输入";
 };
 
 function showMarkdown(msg: ChatMessage): boolean {
   return msg.role === "assistant" && !msg.streaming && !msg.awaitingAction;
+}
+
+function ensureAudioRecorder() {
+  if (!audioRecorder) {
+    audioRecorder = createAudioRecorder();
+  }
+  return audioRecorder;
+}
+
+function stopSpeechInput() {
+  audioRecorder?.cancel();
+  speechListening.value = false;
+  speechTranscribing.value = false;
+  speechBase = "";
+}
+
+async function toggleSpeechInput() {
+  if (!sessionId.value || loading.value || pendingInterrupt.value || speechTranscribing.value) {
+    return;
+  }
+  if (!speechSupported.value) {
+    showFailToast("当前浏览器不支持录音");
+    return;
+  }
+
+  const recorder = ensureAudioRecorder();
+  if (speechListening.value) {
+    speechListening.value = false;
+    speechTranscribing.value = true;
+    try {
+      const wav = await recorder.stop();
+      const text = await transcribeAudio(wav);
+      input.value = `${speechBase}${text}`;
+      resizeInput();
+      await focusInput();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "语音识别失败";
+      showFailToast(message);
+    } finally {
+      speechTranscribing.value = false;
+      speechBase = "";
+    }
+    return;
+  }
+
+  speechBase = input.value;
+  speechListening.value = true;
+  try {
+    await recorder.start();
+  } catch {
+    speechListening.value = false;
+    speechBase = "";
+    showFailToast("无法访问麦克风，请检查权限");
+  }
+}
+
+function composerDisabled() {
+  return !sessionId.value || pendingInterrupt.value || speechListening.value || speechTranscribing.value;
+}
+
+function sendDisabled() {
+  return (
+    !input.value.trim() ||
+    !sessionId.value ||
+    pendingInterrupt.value ||
+    speechListening.value ||
+    speechTranscribing.value
+  );
 }
 
 function uid() {
@@ -279,6 +360,7 @@ async function clearChat() {
   abortController?.abort();
   abortController = null;
   stopStreamReveal();
+  stopSpeechInput();
   await resetSession(sessionId.value);
   messages.value = [];
   input.value = "";
@@ -288,6 +370,7 @@ async function clearChat() {
 }
 
 async function sendMessage() {
+  stopSpeechInput();
   const text = input.value.trim();
   if (!text || loading.value || !sessionId.value || pendingInterrupt.value) {
     return;
@@ -394,6 +477,7 @@ async function handleResume(decision: "confirm" | "cancel", sourceMessageId: str
 
 onUnmounted(() => {
   stopStreamReveal();
+  stopSpeechInput();
 });
 
 watch(
@@ -475,6 +559,17 @@ defineExpose({
     </main>
 
     <footer class="composer safe-area-bottom">
+      <button
+        v-if="speechSupported"
+        class="composer__mic"
+        :class="{ 'composer__mic--active': speechListening || speechTranscribing }"
+        type="button"
+        :disabled="!sessionId || loading || pendingInterrupt || speechTranscribing"
+        :aria-label="speechListening ? '停止录音并识别' : '语音输入'"
+        @click="toggleSpeechInput"
+      >
+        {{ speechTranscribing ? "…" : speechListening ? "◉" : "🎤" }}
+      </button>
       <textarea
         ref="inputRef"
         v-model="input"
@@ -482,7 +577,7 @@ defineExpose({
         rows="1"
         :maxlength="inputMaxLength()"
         :placeholder="inputPlaceholder()"
-        :disabled="!sessionId || pendingInterrupt"
+        :disabled="composerDisabled()"
         @input="resizeInput"
         @keydown.enter.exact.prevent="sendMessage"
       />
@@ -490,7 +585,7 @@ defineExpose({
         type="primary"
         size="small"
         :loading="loading"
-        :disabled="!input.trim() || !sessionId || pendingInterrupt"
+        :disabled="sendDisabled()"
         @mousedown.prevent
         @click="sendMessage"
       >
@@ -659,6 +754,27 @@ defineExpose({
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
   background: #fff;
   border-top: 1px solid #ebedf0;
+}
+
+.composer__mic {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: #f7f8fa;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+}
+
+.composer__mic:disabled {
+  opacity: 0.45;
+}
+
+.composer__mic--active {
+  background: #ffecec;
+  color: #ee0a24;
 }
 
 .composer__input {

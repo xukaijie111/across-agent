@@ -12,6 +12,7 @@ from db import MessageRecord, SessionRecord, mysql_store
 class Session:
     session_id: str
     agent_id: str
+    user_id: str = ""
     title: str = ""
     state: dict[str, Any] = field(default_factory=dict)
     updated_at: datetime | None = None
@@ -27,27 +28,38 @@ class SessionStore:
         return Session(
             session_id=record.session_id,
             agent_id=record.agent_id,
+            user_id=record.user_id,
             title=record.title,
             state=record.state,
             updated_at=record.updated_at,
         )
 
-    def create(self, agent_id: str, initial_state: dict[str, Any], *, title: str = "") -> Session:
+    def create(
+        self, agent_id: str, user_id: str, initial_state: dict[str, Any], *, title: str = ""
+    ) -> Session:
         session_id = uuid.uuid4().hex
         state = self._bind_thread_id(session_id, initial_state)
-        record = mysql_store.create_session(agent_id, state, title=title, session_id=session_id)
-        mysql_store.delete_empty_sessions(agent_id, keep_session_id=record.session_id)
+        record = mysql_store.create_session(
+            agent_id, state, user_id=user_id, title=title, session_id=session_id
+        )
+        mysql_store.delete_empty_sessions(agent_id, user_id, keep_session_id=record.session_id)
         return self._to_session(record)
 
     def get(self, session_id: str) -> Session | None:
         record = mysql_store.get_session(session_id)
         return self._to_session(record) if record else None
 
+    def get_for_user(self, session_id: str, user_id: str) -> Session | None:
+        session = self.get(session_id)
+        if session is None or session.user_id != user_id:
+            return None
+        return session
+
     def update_state(self, session_id: str, state: dict[str, Any]) -> None:
         mysql_store.update_session_state(session_id, state)
 
-    def list_by_agent(self, agent_id: str, *, limit: int = 30) -> list[Session]:
-        return [self._to_session(r) for r in mysql_store.list_sessions(agent_id, limit=limit)]
+    def list_by_agent(self, agent_id: str, user_id: str, *, limit: int = 30) -> list[Session]:
+        return [self._to_session(r) for r in mysql_store.list_sessions(agent_id, user_id, limit=limit)]
 
     def reset(self, session_id: str, initial_state: dict[str, Any]) -> Session | None:
         state = self._bind_thread_id(session_id, initial_state)

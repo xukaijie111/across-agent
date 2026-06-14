@@ -68,10 +68,69 @@
 
 ### Agent Playground（2026.05 起，个人实验项目，Python + Vue H5）
 
-- 角色：独立设计与实现
-- 背景：2026 年 5 月转向 Agent 后的综合实践；将多种业务 Agent（客服、SQL 问数、会议纪要、个人分身等）统一到 FastAPI + SSE Playground
-- 职责：Runner 注册协议、会话持久化、上下文裁剪、RAG 文档问答
-- 技术点：LangGraph 客服 HITL、LangChain SQL Agent、FAISS RAG、前端 rAF 流式渲染
+> 面向访客/面试官：这是我 2026 年 5 月转向 Agent 后的**综合实践作品**，用一套 Playground 把多种典型 Agent 场景跑通，并沉淀可复用的工程骨架。
+
+#### 项目目标
+
+- 把「聊天、RAG 客服、SQL 问数、会议纪要、个人分身」等常见 Agent 形态放在**同一套调试台**里对比体验
+- 验证自己对 Agent 工程化的理解：Runner 注册、会话持久化、SSE 流式、上下文治理、HITL、权限粗拆
+- 可部署对外演示（阿里云 ECS + Nginx），而不只是本地脚本
+
+#### 整体架构（我做了什么）
+
+```text
+Vue H5 调试台（侧栏选 Agent、聊天、历史会话、确认中断）
+        │  HTTP / SSE
+FastAPI 统一 API（/api/agents、/api/sessions、/api/chat/stream）
+        │
+Runner 层（每个 Agent 一个 Runner，实现 stream_turn / stream_resume）
+        │
+subagents/（各业务 agent.py：客服图、SQL 循环、RAG 流水线等）
+        │
+基础设施：MySQL 会话与消息、百炼/OpenAI 兼容 LLM、FAISS 向量库
+```
+
+- **子 Agent 隔离**：业务逻辑在 `server/subagents/<name>/agent.py`，不堆在一个大文件里
+- **Runner 桥接**：`server/runners/` 把 subagent 适配成统一 `StreamEvent` 协议，API 层无业务 if-else
+- **注册发现**：`registry.load_runners()` 启动时注册；前端 `GET /api/agents` 动态拉列表
+- **会话持久化**：MySQL 存 session / message；`persona`、`echo` 等支持多轮历史恢复
+- **统一上下文治理**：`make_chat_llm(govern=True)` 在调模型前裁剪历史；**只裁 working view，不写回 DB/checkpoint**
+- **流式体验**：后端 SSE 推送 delta；前端 `requestAnimationFrame` 逐字揭示，发送后输入框保持聚焦
+- **一键部署**：`scripts/deploy-aliyun.sh` 打包上传 ECS，远程构建前端并重启 systemd
+
+#### 当前已上线的子 Agent（以本仓库为准）
+
+| Runner id | 名称 | 演示什么场景 | 是否用 Tool | 我采用的实现 |
+|-----------|------|--------------|-------------|--------------|
+| `persona` | 我的分身 | 个人知识 RAG、履历与技术面问答 | 否 | FAISS + `knowledge.md`；第一人称；侧栏默认排第一 |
+| `customer-support` | 服装客服 | 电商 RAG 客服 + 敏感操作需人确认 | 是 | LangGraph 图编排；FAISS 知识库；退货 `interrupt` + 前端 confirm/cancel |
+| `echo` | 聊天助手 | 最简对话基线，无工具无 RAG | 否 | LangGraph 单节点 `chat`；不联网、不确定不编造 |
+| `meeting-notes` | 会议纪要 | 长文本 → 结构化 Markdown 输出 | 否 | 单次 prompt 生成摘要/决策/待办；前端支持 Markdown 渲染 |
+| `sql-query` | 数据问数 | 自然语言查结构化数据 | 是 | LangChain `SQLDatabaseToolkit` + 只读 MySQL demo 库（客户/商品/订单） |
+
+**各 Agent 补充说明（方便他人了解细节）：**
+
+- **我的分身**：内置 `knowledge.md`（简历、职业转向、LangChain 理解、Playground 说明）；仅依据资料回答，避免编造
+- **服装客服**：模拟「衣汇商城」；用户要求退货时会触发 HITL，必须点确认才继续执行工具
+- **聊天助手**：用来对比「纯 LLM 对话」与「带 RAG/工具的 Agent」差异
+- **会议纪要**：输入口适合粘贴长文字稿；输出为可复制的结构化纪要
+- **数据问数**：演示 Text-to-SQL；数据库为 demo 电商 schema，强调只读与安全边界
+
+- **已下线**：`pdf-qa`（文档问答）已被 `persona` 替代，目录保留但未注册
+- **权限粗拆**：有 tool 的仅客服、SQL；分身/聊天/会议纪要无 tool calling——我在探索更细粒度权限前的第一阶段做法
+
+#### 工程亮点（可问可聊）
+
+- Session / Context / Memory 分层：DB 存全量历史，发给模型前瞬时裁剪
+- 上下文治理插件槽位：`server/context/` 统一注册，子 Agent 不各自调插件
+- 客服 HITL 与 LangChain `middleware/hitl.ts` 思想对照：我用 LangGraph `interrupt` 自管图与 checkpoint
+- 部署可复现：ECS + Nginx 反代 + systemd 守护 `agent-api`；增量更新 `make deploy-update`
+
+#### 演示访问
+
+- 公网演示（IP）：http://106.15.5.36
+- API 文档：http://106.15.5.36/docs
+- 域名 `agentnow.fun` 已解析，但大陆访问需 ICP 备案，备案前请用 IP
 
 ## 教育经历
 
@@ -141,7 +200,7 @@
   - **调用限额**：`toolCallLimit` 防刷、控成本，避免模型陷入死循环调工具
   - **Runner 隔离**：Playground 里按 Agent 注册不同 Runner，权限策略跟着业务走，不混在一个黑盒里
 - 与 Middleware 的关联：HITL、`toolCallLimit`、PII、llmToolSelector 都是权限治理的不同切面，不是单点方案
-- Playground 现状：客服有退货确认 interrupt；SQL Agent 依赖只读库；其余 Agent 无工具——属于粗粒度权限拆分，细粒度策略还在学习中
+- Playground 现状（详见上文子 Agent 表）：客服有退货确认 interrupt；SQL 只读库 + 内置 toolkit；persona/echo/meeting-notes 无工具——粗粒度权限拆分，细粒度策略还在学习中
 - 个人倾向：权限默认收紧、按需放开；敏感动作可审计、可回放、可中断
 
 ## 我常怎么答 Agent 面试题
