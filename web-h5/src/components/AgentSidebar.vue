@@ -79,7 +79,7 @@ const emit = defineEmits<{
   padding: 16px 16px 8px;
   font-size: 14px;
   font-weight: 600;
-  color: #646566;
+  color: var(--color-text-secondary);
 }
 
 .drawer__subheader--row {
@@ -91,7 +91,7 @@ const emit = defineEmits<{
 .text-btn {
   border: none;
   background: transparent;
-  color: #1989fa;
+  color: var(--color-accent);
   font-size: 14px;
   padding: 0 4px;
 }
@@ -118,13 +118,13 @@ const emit = defineEmits<{
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;
-  color: #969799;
+  color: var(--color-text-muted);
   white-space: normal;
   word-break: break-word;
 }
 
 :deep(.van-cell.active) {
-  background: #f0f9ff;
+  background: var(--color-accent-soft);
 }
 
 :deep(.van-cell__title) {

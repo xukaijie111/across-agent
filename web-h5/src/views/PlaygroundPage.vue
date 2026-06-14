@@ -226,7 +226,7 @@ onUnmounted(() => {
 <style scoped>
 .playground {
   height: 100%;
-  background: #f5f6f8;
+  background: var(--color-bg);
 }
 
 .playground__loading {

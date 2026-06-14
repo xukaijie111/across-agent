@@ -2,8 +2,26 @@
   color-scheme: light;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  background: #f5f6f8;
-  color: #1f2329;
+
+  --color-bg: #f8faff;
+  --color-bg-welcome: linear-gradient(165deg, #f5f8ff 0%, #ffffff 42%, #fff8f3 100%);
+  --color-surface: #ffffff;
+  --color-text: #1a1d26;
+  --color-text-secondary: #5b6472;
+  --color-text-muted: #8b93a1;
+  --color-accent: #4f6ef7;
+  --color-accent-hover: #3d5ce8;
+  --color-accent-soft: #eef2ff;
+  --color-accent-softer: #f5f7ff;
+  --color-chip-bg: #eef2ff;
+  --color-chip-border: #d6defb;
+  --color-chip-hover: #e0e7ff;
+  --color-border: #e8ecf4;
+  --color-input-bg: #f5f7ff;
+  --shadow-soft: 0 2px 12px rgba(79, 110, 247, 0.08);
+
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 * {
@@ -20,4 +38,13 @@ body,
 
 body {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Vant 主题色 */
+:root {
+  --van-primary-color: #4f6ef7;
+  --van-button-primary-background: #4f6ef7;
+  --van-button-primary-border-color: #4f6ef7;
+  --van-nav-bar-background: #ffffff;
+  --van-nav-bar-title-text-color: var(--color-text);
 }

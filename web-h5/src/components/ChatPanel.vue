@@ -15,6 +15,7 @@ import { syncChatUrl } from "../lib/chatUrl";
 import { createAudioRecorder, isAudioRecordSupported, type AudioRecorderHandle } from "../lib/audioRecord";
 import { renderMarkdown } from "../lib/renderMarkdown";
 import { createStreamReveal, type StreamRevealHandle } from "../lib/streamReveal";
+import { personaWelcome } from "../lib/personaWelcome";
 import type { AgentInfo, ChatMessage, HistoryMessage, InterruptPayload } from "../types";
 
 const props = defineProps<{
@@ -369,9 +370,20 @@ async function clearChat() {
   showToast("对话已清空");
 }
 
-async function sendMessage() {
+function showPersonaWelcome() {
+  return props.agent.id === "persona" && messages.value.length === 0 && !loading.value;
+}
+
+async function sendShortcut(text: string) {
+  if (loading.value || !sessionId.value || pendingInterrupt.value) {
+    return;
+  }
+  await submitMessage(text);
+}
+
+async function submitMessage(overrideText?: string) {
   stopSpeechInput();
-  const text = input.value.trim();
+  const text = (overrideText ?? input.value).trim();
   if (!text || loading.value || !sessionId.value || pendingInterrupt.value) {
     return;
   }
@@ -418,6 +430,10 @@ async function sendMessage() {
       await focusInput();
     }
   }
+}
+
+async function sendMessage() {
+  await submitMessage();
 }
 
 async function handleResume(decision: "confirm" | "cancel", sourceMessageId: string) {
@@ -502,12 +518,15 @@ defineExpose({
 </script>
 
 <template>
-  <div class="chat-panel">
+  <div class="chat-panel" :class="{ 'chat-panel--welcome': showPersonaWelcome() }">
     <van-nav-bar fixed placeholder safe-area-inset-top>
       <template v-if="showMenu" #left>
-        <button class="icon-btn" type="button" aria-label="打开菜单" @click="emit('openMenu')">
-          ☰
-        </button>
+        <div class="menu-hint">
+          <button class="icon-btn" type="button" aria-label="打开菜单" @click="emit('openMenu')">
+            ☰
+          </button>
+          <span class="menu-hint__finger" aria-hidden="true">👈</span>
+        </div>
       </template>
       <template #title>
         <div class="nav-title">
@@ -520,8 +539,29 @@ defineExpose({
       </template>
     </van-nav-bar>
 
-    <main ref="listRef" class="chat-list" @scroll="onListScroll">
-      <van-empty v-if="messages.length === 0" description="发一条消息开始调试" />
+    <main
+      ref="listRef"
+      class="chat-list"
+      :class="{ 'chat-list--welcome': showPersonaWelcome() }"
+      @scroll="onListScroll"
+    >
+      <section v-if="showPersonaWelcome()" class="welcome">
+        <h1 class="welcome__title">{{ personaWelcome.title }}</h1>
+        <p class="welcome__subtitle">{{ personaWelcome.subtitle }}</p>
+        <div class="welcome__chips">
+          <button
+            v-for="item in personaWelcome.shortcuts"
+            :key="item"
+            class="welcome__chip"
+            type="button"
+            :disabled="!sessionId || pendingInterrupt"
+            @click="sendShortcut(item)"
+          >
+            {{ item }}
+          </button>
+        </div>
+      </section>
+      <van-empty v-else-if="messages.length === 0" description="发一条消息开始调试" />
       <div
         v-for="msg in messages"
         :key="msg.id"
@@ -558,7 +598,7 @@ defineExpose({
       </div>
     </main>
 
-    <footer class="composer safe-area-bottom">
+    <footer class="composer">
       <button
         v-if="speechSupported"
         class="composer__mic"
@@ -600,19 +640,132 @@ defineExpose({
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #f5f6f8;
+  background: var(--color-bg);
+}
+
+.chat-panel--welcome {
+  background: var(--color-bg-welcome);
+  justify-content: center;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.chat-list--welcome {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  flex: 0 1 auto;
+  overflow: visible;
+}
+
+.chat-panel--welcome .composer {
+  flex: 0 0 auto;
+  margin-top: 20px;
+  border-top: none;
+  box-shadow: none;
+  background: transparent;
+  padding-top: 0;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+.welcome {
+  width: 100%;
+  max-width: 720px;
+  padding: 0 12px;
+  text-align: center;
+}
+
+.welcome__title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  background: linear-gradient(120deg, #1a1d26 10%, #4f6ef7 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.welcome__subtitle {
+  margin: 12px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.welcome__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 28px;
+  margin-bottom: 4px;
+}
+
+.welcome__chip {
+  border: 1px solid var(--color-chip-border);
+  background: var(--color-chip-bg);
+  color: #2f3a5c;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 1px 2px rgba(79, 110, 247, 0.06);
+}
+
+.welcome__chip:hover:not(:disabled) {
+  background: var(--color-chip-hover);
+  border-color: #b8c4f8;
+}
+
+.welcome__chip:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.welcome__chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .icon-btn,
 .text-btn {
   border: none;
   background: transparent;
-  color: #1989fa;
+  color: var(--color-accent);
   padding: 0 4px;
 }
 
 .icon-btn {
   font-size: 18px;
+}
+
+.menu-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
+.menu-hint__finger {
+  display: inline-block;
+  font-size: 22px;
+  line-height: 1;
+  margin-left: 2px;
+  animation: finger-nudge 1.1s ease-in-out infinite;
+  filter: sepia(1) saturate(4) hue-rotate(5deg) brightness(1.05);
+  text-shadow: 0 0 8px rgba(255, 204, 0, 0.9), 0 2px 4px rgba(255, 160, 0, 0.45);
+}
+
+@keyframes finger-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-7px) scale(1.1);
+  }
 }
 
 .text-btn {
@@ -634,7 +787,7 @@ defineExpose({
 
 .nav-title__desc {
   font-size: 11px;
-  color: #969799;
+  color: var(--color-text-muted);
   margin-top: 2px;
 }
 
@@ -643,6 +796,7 @@ defineExpose({
   overflow-y: auto;
   padding: 12px 12px 8px;
   -webkit-overflow-scrolling: touch;
+  background: transparent;
 }
 
 .bubble-row {
@@ -672,16 +826,18 @@ defineExpose({
 }
 
 .bubble.user {
-  background: #1989fa;
+  background: linear-gradient(135deg, #5b7cfa 0%, #4f6ef7 100%);
   color: #fff;
   border-bottom-right-radius: 4px;
+  box-shadow: 0 2px 8px rgba(79, 110, 247, 0.28);
 }
 
 .bubble.assistant {
-  background: #fff;
-  color: #1f2329;
+  background: var(--color-surface);
+  color: var(--color-text);
   border-bottom-left-radius: 4px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-soft);
 }
 
 .bubble__markdown :deep(h1) {
@@ -718,7 +874,7 @@ defineExpose({
 .bubble__markdown :deep(code) {
   padding: 0 4px;
   border-radius: 4px;
-  background: #f2f3f5;
+  background: var(--color-accent-softer);
   font-size: 0.92em;
 }
 
@@ -727,7 +883,7 @@ defineExpose({
   padding: 10px;
   overflow-x: auto;
   border-radius: 8px;
-  background: #f2f3f5;
+  background: var(--color-accent-softer);
 }
 
 .bubble__markdown :deep(pre code) {
@@ -751,18 +907,20 @@ defineExpose({
   display: flex;
   gap: 8px;
   align-items: flex-end;
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
-  background: #fff;
-  border-top: 1px solid #ebedf0;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -4px 16px rgba(79, 110, 247, 0.04);
+  flex-shrink: 0;
 }
 
 .composer__mic {
   flex: 0 0 36px;
   width: 36px;
   height: 36px;
-  border: none;
+  border: 1px solid var(--color-chip-border);
   border-radius: 10px;
-  background: #f7f8fa;
+  background: var(--color-accent-softer);
   font-size: 18px;
   line-height: 1;
   padding: 0;
@@ -782,26 +940,27 @@ defineExpose({
   min-height: 36px;
   max-height: 120px;
   padding: 8px 12px;
-  border: none;
-  border-radius: 10px;
-  background: #f7f8fa;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-input-bg);
   font-size: 15px;
   line-height: 1.5;
   resize: none;
   outline: none;
-  color: #323233;
+  color: var(--color-text);
+}
+
+.composer__input:focus {
+  border-color: #b8c4f8;
+  background: var(--color-surface);
 }
 
 .composer__input:disabled {
-  color: #c8c9cc;
-  background: #f2f3f5;
+  color: #b0b6c3;
+  background: var(--color-accent-softer);
 }
 
 .composer__input::placeholder {
-  color: #c8c9cc;
-}
-
-.safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
+  color: #a8b0bd;
 }
 </style>
